@@ -3,6 +3,7 @@
 import os
 import tarfile
 
+from django.db.models import F, Max
 from django.shortcuts import get_object_or_404, reverse
 from django.utils.translation import ugettext as _
 from django.utils.encoding import escape_uri_path
@@ -11,8 +12,11 @@ from django.core.files.storage import default_storage
 from rest_framework import viewsets, views
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 
 from common.utils import data_to_json
+from assets.models import Asset
+from common.drf.api import JMSReadOnlyModelViewSet
 from common.const.http import GET
 from common.utils import get_logger, get_object_or_none
 from common.mixins.api import AsyncApiMixin
@@ -26,15 +30,17 @@ from ..utils import find_session_replay_local, download_session_replay
 from ..models import Session
 from .. import serializers
 from terminal.utils import is_session_approver
+from assets.serializers import AssetSerializer
 
 __all__ = [
-    'SessionViewSet', 'SessionReplayViewSet', 'SessionJoinValidateAPI'
+    'SessionViewSet', 'SessionReplayViewSet', 'SessionJoinValidateAPI',
+    'MySessionViewSet', 'MySessionAssetViewSet',
 ]
 
 logger = get_logger(__name__)
 
 
-class SessionViewSet(OrgBulkModelViewSet):
+class CommonSessionMixin:
     model = Session
     serializer_classes = {
         'default': serializers.SessionSerializer,
@@ -52,6 +58,56 @@ class SessionViewSet(OrgBulkModelViewSet):
     rbac_perms = {
         'download': ['terminal.download_sessionreplay']
     }
+
+
+class MySessionViewSet(CommonSessionMixin, JMSReadOnlyModelViewSet):
+    queryset = Session.objects.all()
+    permission_classes = (IsAuthenticated, )
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = super().get_queryset()
+        qs = qs.filter(user_id=user.id)
+        return qs
+
+
+class MySessionAssetViewSet(JMSReadOnlyModelViewSet):
+    queryset = Asset.objects.all()
+    permission_classes = (IsAuthenticated, )
+    serializer_class = AssetSerializer
+
+    def list(self, request, *args, **kwargs):
+        user = self.request.user
+
+        sessions = Session.objects.filter(user_id=user.id).values_list('asset_id').annotate(
+            max_date_start=Max(F('date_start'))
+        ).order_by('-max_date_start').values_list('asset_id', flat=True)
+        page = self.paginate_queryset(sessions)
+        if page is not None:
+            serializer = self._to_serializer(page)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self._to_serializer(sessions)
+        return Response(serializer.data)
+
+    def _to_serializer(self, asset_ids):
+        asset_ids = [i for i in asset_ids if i != '']  # xrdp bug 没有提交 asset_id，已修复，但要兼容旧数据
+        self._paginator.count = len(asset_ids)
+
+        assets_qs = Asset.objects.filter(id__in=asset_ids)
+        serializer_cls = self.get_serializer_class()
+        if hasattr(serializer_cls, 'setup_eager_loading'):
+            assets_qs = serializer_cls.setup_eager_loading(assets_qs)
+
+        id_asset_map = {str(asset.id): asset for asset in assets_qs}
+        assets = []
+        for i in asset_ids:
+            assets.append(id_asset_map[i])
+        serializer = self.get_serializer(assets, many=True)
+        return serializer
+
+
+class SessionViewSet(CommonSessionMixin, OrgBulkModelViewSet):
 
     @staticmethod
     def prepare_offline_file(session, local_path):
