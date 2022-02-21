@@ -11,8 +11,6 @@ from .. import api
 app_name = 'terminal'
 
 router = BulkRouter()
-router.register(r'sessions/my', api.MySessionViewSet, 'my-session')
-router.register(r'sessions/asset/my', api.MySessionAssetViewSet, 'my-asset')
 router.register(r'sessions', api.SessionViewSet, 'session')
 router.register(r'terminals/(?P<terminal>[a-zA-Z0-9\-]{36})?/?status', api.StatusViewSet, 'terminal-status')
 router.register(r'terminals/(?P<terminal>[a-zA-Z0-9\-]{36})?/?sessions', api.SessionViewSet, 'terminal-sessions')
@@ -26,6 +24,8 @@ router.register(r'session-sharings', api.SessionSharingViewSet, 'session-sharing
 router.register(r'session-join-records', api.SessionJoinRecordsViewSet, 'session-sharing-record')
 
 urlpatterns = [
+    path('my-sessions/asset/', api.MySessionAssetAPIView.as_view(), name='my-session-asset'),
+    path('my-sessions/', api.MySessionAPIView.as_view(), name='my-session'),
     path('terminal-registrations/', api.TerminalRegistrationApi.as_view(), name='terminal-registration'),
     path('registration/', api.TerminalRegistrationApi.as_view(), name='registration'),
     path('sessions/join/validate/', api.SessionJoinValidateAPI.as_view(), name='join-session-validate'),
