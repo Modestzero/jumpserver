@@ -4,6 +4,7 @@ from rest_framework.mixins import ListModelMixin, CreateModelMixin
 from django.db.models import F, Value
 from django.db.models.functions import Concat
 from rest_framework.permissions import IsAuthenticated
+from rest_framework import generics
 
 from common.drf.api import JMSReadOnlyModelViewSet
 from common.drf.filters import DatetimeRangeFilter
@@ -57,7 +58,7 @@ class UserLoginLogViewSet(UserLoginCommonMixin, ListModelMixin, CommonGenericVie
         return queryset
 
 
-class MyLoginLogViewSet(UserLoginCommonMixin, JMSReadOnlyModelViewSet):
+class MyLoginLogAPIView(UserLoginCommonMixin, generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
