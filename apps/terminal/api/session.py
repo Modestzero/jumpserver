@@ -17,7 +17,6 @@ from rest_framework import generics
 
 from common.utils import data_to_json
 from assets.models import Asset
-from common.drf.api import JMSReadOnlyModelViewSet
 from common.const.http import GET
 from common.utils import get_logger, get_object_or_none
 from common.mixins.api import AsyncApiMixin
@@ -46,9 +45,10 @@ class MySessionAPIView(generics.ListAPIView):
     serializer_class = serializers.SessionSerializer
 
     def get_queryset(self):
-        user = self.request.user
-        qs = Session.objects.filter(user_id=user.id)
-        return qs
+        with tmp_to_root_org():
+            user = self.request.user
+            qs = Session.objects.filter(user_id=user.id)
+            return qs
 
 
 class MySessionAssetAPIView(generics.ListAPIView):
@@ -57,23 +57,24 @@ class MySessionAssetAPIView(generics.ListAPIView):
     serializer_class = AssetSerializer
 
     def list(self, request, *args, **kwargs):
-        user = self.request.user
+        with tmp_to_root_org():
+            user = self.request.user
 
-        asset_ids = Session.objects.filter(user_id=user.id).exclude(
-            asset_id=''  # xrdp bug 没有提交 asset_id，已修复，但要兼容旧数据
-        ).values_list('asset_id').annotate(
-            max_date_start=Max(F('date_start'))
-        ).order_by('-max_date_start').values_list('asset_id', flat=True)
-        page = self.paginate_queryset(asset_ids)
-        if page is not None:
-            serializer = self._to_serializer(page)
-            return self.get_paginated_response(serializer.data)
+            asset_ids = Session.objects.filter(user_id=user.id).exclude(
+                asset_id=''  # xrdp bug 没有提交 asset_id，已修复，但要兼容旧数据
+            ).values_list('asset_id').annotate(
+                max_date_start=Max(F('date_start'))
+            ).order_by('-max_date_start').values_list('asset_id', flat=True)
+            page = self.paginate_queryset(asset_ids)
+            if page is not None:
+                serializer = self._to_serializer(page)
+                return self.get_paginated_response(serializer.data)
 
-        serializer = self._to_serializer(asset_ids)
-        return Response(serializer.data)
+            serializer = self._to_serializer(asset_ids)
+            return Response(serializer.data)
 
     def _to_serializer(self, asset_ids):
-        assets_qs = Asset.objects.filter(id__in=asset_ids)
+        assets_qs = Asset.objects.filter(id__in=list(asset_ids))
         serializer_cls = self.get_serializer_class()
         if hasattr(serializer_cls, 'setup_eager_loading'):
             assets_qs = serializer_cls.setup_eager_loading(assets_qs)
